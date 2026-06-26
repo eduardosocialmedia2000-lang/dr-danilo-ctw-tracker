@@ -1,15 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { extractCTW } from '../src/extractCTW';
 import { getDatasetAndPage } from '../src/graphApi';
-import { sendLeadSubmitted } from '../src/metaCapi';
+import { sendLeadSubmitted, sendPurchase } from '../src/metaCapi';
+import { upsertCTWLead, getCTWLead, markPurchaseSent } from '../src/supabase';
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
 const META_TEST_EVENT_CODE = process.env.META_TEST_EVENT_CODE ?? '';
 
+// CM2 — Consulta Agendada: pipeline 13597443, stage 104924215
+const CM2_PIPELINE_ID = 13597443;
+const CM2_CONSULTA_AGENDADA_STAGE_ID = 104924215;
+// Valor da consulta para o evento Purchase (em BRL)
+const CONSULTA_VALUE = Number(process.env.CONSULTA_VALUE ?? '0');
+const CONSULTA_CURRENCY = 'BRL';
+
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  // Health check
   if (req.method === 'GET') {
     res.status(200).json({ ok: true, service: 'ctw-tracker' });
     return;
@@ -27,21 +34,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  const body = req.body as unknown;
+  const body = req.body as Record<string, unknown>;
 
-  // Extrai dados CTW — retorna null se não for mensagem de anúncio CTW
+  // ── FLUXO 1: lead avançou para "Consulta Agendada" no CM2 ──────────────────
+  // O Kommo dispara update_lead com leads.update contendo pipeline_id e status_id
+  const updatedLeads = (body?.leads as Record<string, unknown>)?.update as unknown[];
+  if (Array.isArray(updatedLeads) && updatedLeads.length > 0) {
+    for (const lead of updatedLeads) {
+      const l = lead as Record<string, unknown>;
+      const leadId = Number(l.id);
+      const pipelineId = Number(l.pipeline_id);
+      const stageId = Number(l.status_id);
+
+      if (pipelineId === CM2_PIPELINE_ID && stageId === CM2_CONSULTA_AGENDADA_STAGE_ID) {
+        console.log('[ctw-tracker] Consulta Agendada detectada, lead_id:', leadId);
+
+        const stored = await getCTWLead(leadId);
+        if (!stored) {
+          console.log('[ctw-tracker] Sem ctwaClid para lead_id:', leadId, '— skipping Purchase');
+          res.status(200).json({ ok: true, skipped: true, reason: 'no_ctwa_clid_stored' });
+          return;
+        }
+
+        if (stored.purchase_event_sent_at) {
+          console.log('[ctw-tracker] Purchase já enviado para lead_id:', leadId);
+          res.status(200).json({ ok: true, skipped: true, reason: 'purchase_already_sent' });
+          return;
+        }
+
+        try {
+          const capiResp = await sendPurchase(
+            {
+              ctwaClid: stored.ctwa_clid,
+              phone: stored.phone ?? '',
+              dataset: stored.dataset_id ?? '',
+              pageId: stored.page_id ?? '',
+              value: CONSULTA_VALUE,
+              currency: CONSULTA_CURRENCY,
+              timestamp: Math.floor(Date.now() / 1000),
+              testEventCode: META_TEST_EVENT_CODE || undefined,
+            },
+            META_ACCESS_TOKEN,
+            META_API_VERSION
+          );
+          await markPurchaseSent(leadId);
+          console.log('[ctw-tracker] Purchase enviado para lead_id:', leadId);
+          res.status(200).json({ ok: true, event: 'Purchase', leadId, capi: capiResp });
+        } catch (err) {
+          console.error('[ctw-tracker] Erro ao enviar Purchase:', err);
+          res.status(502).json({ error: 'purchase_capi_error', detail: String(err) });
+        }
+        return;
+      }
+    }
+  }
+
+  // ── FLUXO 2: nova mensagem ou novo lead com ctwaClid ───────────────────────
   const ctw = extractCTW(body);
   if (!ctw) {
-    // Não é CTW — aceita silenciosamente (200) para o Kommo não retentar
     res.status(200).json({ ok: true, skipped: true, reason: 'not_ctw' });
     return;
   }
 
-  console.log('[ctw-tracker] CTW detectado', {
-    phone: ctw.phone,
-    sourceId: ctw.sourceId,
-    ctwaClid: ctw.ctwaClid.slice(0, 20) + '…',
-  });
+  // Extrai lead_id do payload (Kommo inclui em leads.add ou leads.update)
+  const addedLeads = (body?.leads as Record<string, unknown>)?.add as unknown[];
+  const leadId = Array.isArray(addedLeads) && addedLeads.length > 0
+    ? Number((addedLeads[0] as Record<string, unknown>).id)
+    : 0;
+
+  console.log('[ctw-tracker] CTW detectado', { leadId, phone: ctw.phone, sourceId: ctw.sourceId });
 
   let dataset: string;
   let pageId: string;
@@ -56,8 +117,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  let capiResponse: unknown;
+  // Salva no Supabase para associar o ctwaClid ao lead_id
+  if (leadId) {
+    try {
+      await upsertCTWLead({
+        lead_id: leadId,
+        ctwa_clid: ctw.ctwaClid,
+        source_id: ctw.sourceId,
+        source_url: ctw.sourceUrl,
+        phone: ctw.phone,
+        dataset_id: dataset,
+        page_id: pageId,
+      });
+    } catch (err) {
+      // Log mas não falha — CAPI ainda deve ser enviada
+      console.warn('[ctw-tracker] Erro ao salvar no Supabase:', err);
+    }
+  }
 
+  // Envia LeadSubmitted para Meta CAPI
+  let capiResponse: unknown;
   try {
     capiResponse = await sendLeadSubmitted(
       {
@@ -77,12 +156,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  console.log('[ctw-tracker] LeadSubmitted enviado', { dataset, pageId, capiResponse });
+  console.log('[ctw-tracker] LeadSubmitted enviado', { dataset, pageId });
 
-  res.status(200).json({
-    ok: true,
-    dataset,
-    pageId,
-    capi: capiResponse,
-  });
+  res.status(200).json({ ok: true, event: 'LeadSubmitted', leadId, dataset, pageId, capi: capiResponse });
 }

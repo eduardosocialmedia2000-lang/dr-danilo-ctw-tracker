@@ -84,6 +84,44 @@ export async function sendLeadSubmitted(
   const url = `https://graph.facebook.com/${apiVersion}/${params.dataset}/events`;
   const body = JSON.stringify(payload);
 
-  const response = await httpsPost(url, body, accessToken);
-  return response;
+  return httpsPost(url, body, accessToken);
+}
+
+export interface PurchaseParams {
+  ctwaClid: string;
+  phone: string;
+  dataset: string;
+  pageId: string;
+  value: number;
+  currency: string;
+  timestamp: number;
+  testEventCode?: string;
+}
+
+export async function sendPurchase(
+  params: PurchaseParams,
+  accessToken: string,
+  apiVersion = 'v24.0'
+): Promise<unknown> {
+  const event: CapiEvent & { value?: number; currency?: string } = {
+    action_source: 'business_messaging',
+    event_name: 'Purchase',
+    event_time: params.timestamp,
+    messaging_channel: 'whatsapp',
+    user_data: {
+      ph: hashPhone(params.phone),
+      ctwa_clid: params.ctwaClid,
+      page_id: params.pageId,
+    },
+    value: params.value,
+    currency: params.currency,
+  };
+
+  const payload: CapiPayload = { data: [event] };
+  if (params.testEventCode) {
+    payload.test_event_code = params.testEventCode;
+  }
+
+  const url = `https://graph.facebook.com/${apiVersion}/${params.dataset}/events`;
+  return httpsPost(url, JSON.stringify(payload), accessToken);
 }
