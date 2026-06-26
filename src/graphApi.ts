@@ -21,21 +21,23 @@ function findDatasetAndPage(obj: unknown): DatasetAndPage | null {
 
     const o = node as Record<string, unknown>;
 
-    if ('dataset' in o) {
-      const d = o.dataset;
-      if (Array.isArray(d) && d.length > 0) {
-        dataset = String(d[0]);
-      } else if (typeof d === 'string') {
-        dataset = d;
+    // dataset pode aparecer como "dataset" ou "fb_pixel" (campo real da API)
+    const datasetRaw = o.dataset ?? o.fb_pixel;
+    if (datasetRaw && !dataset) {
+      if (Array.isArray(datasetRaw) && datasetRaw.length > 0) {
+        dataset = String(datasetRaw[0]);
+      } else if (typeof datasetRaw === 'string') {
+        dataset = datasetRaw;
       }
     }
 
-    if ('page' in o) {
-      const p = o.page;
-      if (Array.isArray(p) && p.length > 0) {
-        pageId = String(p[0]);
-      } else if (typeof p === 'string') {
-        pageId = p;
+    // page_id aparece como "page" ou "post.wall"
+    const pageRaw = o.page ?? o['post.wall'];
+    if (pageRaw && !pageId) {
+      if (Array.isArray(pageRaw) && pageRaw.length > 0) {
+        pageId = String(pageRaw[0]);
+      } else if (typeof pageRaw === 'string') {
+        pageId = pageRaw;
       }
     }
 
