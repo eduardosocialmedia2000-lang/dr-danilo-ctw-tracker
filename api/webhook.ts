@@ -20,8 +20,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  // Valida secret
-  const secret = req.headers['x-webhook-secret'];
+  // Valida secret — aceita via header ou query string (Kommo não suporta headers customizados)
+  const secret = (req.headers['x-webhook-secret'] as string) || (req.query.secret as string);
   if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
