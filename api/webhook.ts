@@ -62,6 +62,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
           return;
         }
 
+        // Usa o price do lead vindo do Kommo; fallback para CONSULTA_VALUE se vier zerado
+        const leadPrice = Number(l.price ?? 0);
+        const purchaseValue = leadPrice > 0 ? leadPrice : CONSULTA_VALUE;
+
         try {
           const capiResp = await sendPurchase(
             {
@@ -69,7 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
               phone: stored.phone ?? '',
               dataset: stored.dataset_id ?? '',
               pageId: stored.page_id ?? '',
-              value: CONSULTA_VALUE,
+              value: purchaseValue,
               currency: CONSULTA_CURRENCY,
               timestamp: Math.floor(Date.now() / 1000),
               testEventCode: META_TEST_EVENT_CODE || undefined,
@@ -78,8 +82,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
             META_API_VERSION
           );
           await markPurchaseSent(leadId);
-          console.log('[ctw-tracker] Purchase enviado para lead_id:', leadId);
-          res.status(200).json({ ok: true, event: 'Purchase', leadId, capi: capiResp });
+          console.log('[ctw-tracker] Purchase enviado para lead_id:', leadId, 'value:', purchaseValue);
+          res.status(200).json({ ok: true, event: 'Purchase', leadId, value: purchaseValue, capi: capiResp });
         } catch (err) {
           console.error('[ctw-tracker] Erro ao enviar Purchase:', err);
           res.status(502).json({ error: 'purchase_capi_error', detail: String(err) });
