@@ -74,9 +74,9 @@ function extractPhone(body: unknown): string | null {
     if (key && typeof key.remoteJid === 'string') return normalizePhone(key.remoteJid);
   }
 
-  // Kommo: body.contacts[0].phones[0].phone ou body.leads[0]._embedded.contacts[0]
-  // O Kommo pode enviar o telefone em diferentes caminhos — busca genérica
-  const phone = deepFind<string>(body, 'phone') ?? deepFind<string>(body, 'remoteJid');
+  // Kommo: campo "from" na mensagem (ex: "5511999990000@s.whatsapp.net")
+  // Também busca phone e remoteJid para outros formatos
+  const phone = deepFind<string>(body, 'from') ?? deepFind<string>(body, 'phone') ?? deepFind<string>(body, 'remoteJid');
   if (phone) return normalizePhone(phone);
 
   return null;
