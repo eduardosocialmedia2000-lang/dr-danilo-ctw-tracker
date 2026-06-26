@@ -1,0 +1,19 @@
+{
+  "name": "ctw-tracker",
+  "version": "1.0.0",
+  "description": "Middleware de tracking CTW (Click-to-WhatsApp) para Meta CAPI",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vercel/node": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vercel": "^37.0.0"
+  }
+}
