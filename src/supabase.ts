@@ -73,3 +73,11 @@ export async function updateKommoLeadValor(leadId: number, valor: number): Promi
     },
   });
 }
+
+/** Grava o sourceId do anúncio CTW em utm_content para permitir atribuição de ROAS por anúncio */
+export async function updateKommoLeadUtm(leadId: number, sourceId: string): Promise<void> {
+  await sbFetch(`/kommo_leads?lead_id=eq.${leadId}`, {
+    method: 'PATCH',
+    body: { utm_content: sourceId },
+  });
+}

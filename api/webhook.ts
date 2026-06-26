@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { extractCTW } from '../src/extractCTW';
 import { getDatasetAndPage } from '../src/graphApi';
 import { sendLeadSubmitted, sendPurchase } from '../src/metaCapi';
-import { upsertCTWLead, getCTWLead, markPurchaseSent, updateKommoLeadValor } from '../src/supabase';
+import { upsertCTWLead, getCTWLead, markPurchaseSent, updateKommoLeadValor, updateKommoLeadUtm } from '../src/supabase';
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
@@ -141,6 +141,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         dataset_id: dataset,
         page_id: pageId,
       });
+      // Grava sourceId em utm_content para atribuição de ROAS por anúncio no dashboard
+      if (ctw.sourceId) {
+        try {
+          await updateKommoLeadUtm(leadId, ctw.sourceId);
+        } catch (err) {
+          console.warn('[ctw-tracker] Erro ao atualizar utm_content:', err);
+        }
+      }
     } catch (err) {
       // Log mas não falha — CAPI ainda deve ser enviada
       console.warn('[ctw-tracker] Erro ao salvar no Supabase:', err);
