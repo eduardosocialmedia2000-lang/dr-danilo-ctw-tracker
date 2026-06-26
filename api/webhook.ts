@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { extractCTW } from '../src/extractCTW';
 import { getDatasetAndPage } from '../src/graphApi';
 import { sendLeadSubmitted, sendPurchase } from '../src/metaCapi';
-import { upsertCTWLead, getCTWLead, markPurchaseSent } from '../src/supabase';
+import { upsertCTWLead, getCTWLead, markPurchaseSent, updateKommoLeadValor } from '../src/supabase';
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
@@ -82,6 +82,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
             META_API_VERSION
           );
           await markPurchaseSent(leadId);
+          // Atualiza kommo_leads.valor_fechado para refletir na vw_roas_unificado do dashboard
+          if (purchaseValue > 0) {
+            try {
+              await updateKommoLeadValor(leadId, purchaseValue);
+            } catch (err) {
+              console.warn('[ctw-tracker] Erro ao atualizar valor_fechado:', err);
+            }
+          }
           console.log('[ctw-tracker] Purchase enviado para lead_id:', leadId, 'value:', purchaseValue);
           res.status(200).json({ ok: true, event: 'Purchase', leadId, value: purchaseValue, capi: capiResp });
         } catch (err) {

@@ -62,3 +62,14 @@ export async function markPurchaseSent(leadId: number): Promise<void> {
     body: { purchase_event_sent_at: new Date().toISOString() },
   });
 }
+
+/** Atualiza valor_fechado e data_fechamento em kommo_leads para refletir na vw_roas_unificado */
+export async function updateKommoLeadValor(leadId: number, valor: number): Promise<void> {
+  await sbFetch(`/kommo_leads?lead_id=eq.${leadId}`, {
+    method: 'PATCH',
+    body: {
+      valor_fechado: valor,
+      data_fechamento: new Date().toISOString().slice(0, 10),
+    },
+  });
+}
