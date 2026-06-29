@@ -3,6 +3,7 @@ import { extractCTW } from '../src/extractCTW';
 import { getDatasetAndPage } from '../src/graphApi';
 import { sendLeadSubmitted, sendPurchase } from '../src/metaCapi';
 import { upsertCTWLead, getCTWLead, markPurchaseSent, updateKommoLeadValor, updateKommoLeadUtm } from '../src/supabase';
+import { applyMetaAdsTag } from '../src/kommo';
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
@@ -155,6 +156,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         } catch (err) {
           console.warn('[ctw-tracker] Erro ao atualizar utm_content:', err);
         }
+      }
+      // Aplica tag "meta-ads-ctwa" no lead para que o n8n filtre o Purchase
+      try {
+        await applyMetaAdsTag(leadId);
+        console.log('[ctw-tracker] Tag meta-ads-ctwa aplicada, lead_id:', leadId);
+      } catch (err) {
+        console.warn('[ctw-tracker] Erro ao aplicar tag meta-ads-ctwa:', err);
       }
     } catch (err) {
       // Log mas não falha — CAPI ainda deve ser enviada
