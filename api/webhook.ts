@@ -108,11 +108,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  // Extrai lead_id do payload (Kommo inclui em leads.add ou leads.update)
+  // Extrai lead_id do payload:
+  // - leads.add[0].id → evento "Lead adicionado"
+  // - message.add[0].entity_id → evento "Mensagem recebida" do Kommo
   const addedLeads = (body?.leads as Record<string, unknown>)?.add as unknown[];
-  const leadId = Array.isArray(addedLeads) && addedLeads.length > 0
-    ? Number((addedLeads[0] as Record<string, unknown>).id)
-    : 0;
+  const messageAdd = (body?.message as Record<string, unknown>)?.add as unknown[];
+  const leadId =
+    (Array.isArray(addedLeads) && addedLeads.length > 0
+      ? Number((addedLeads[0] as Record<string, unknown>).id)
+      : 0) ||
+    (Array.isArray(messageAdd) && messageAdd.length > 0
+      ? Number((messageAdd[0] as Record<string, unknown>).entity_id ?? 0)
+      : 0);
 
   console.log('[ctw-tracker] CTW detectado', { leadId, phone: ctw.phone, sourceId: ctw.sourceId });
 

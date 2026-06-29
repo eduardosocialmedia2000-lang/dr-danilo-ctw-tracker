@@ -42,6 +42,7 @@ export interface CTWLeadRow {
   phone?: string;
   dataset_id?: string;
   page_id?: string;
+  purchase_event_sent_at?: string | null;
 }
 
 /** Salva ou atualiza o ctwaClid vinculado ao lead_id */

@@ -40,13 +40,43 @@ function deepFind<T>(obj: unknown, key: string): T | undefined {
 }
 
 /**
- * Tenta extrair o bloco externalAdReply do payload, independente do formato.
+ * Tenta extrair o bloco com dados CTW do payload, independente do formato.
  * Retorna null se não for uma mensagem de anúncio CTW.
+ *
+ * Formatos suportados:
+ * 1. Kommo webhook nativo: message.add[0].origin.ctwa_clid
+ * 2. Evolution API / Z-API: externalAdReply.ctwaClid (com sourceType = "ad")
  */
 function extractAdReply(body: unknown): Record<string, unknown> | null {
   if (!body || typeof body !== 'object') return null;
 
-  // Busca o campo externalAdReply em qualquer lugar do payload
+  // Formato Kommo nativo: { message: { add: [{ origin: { ctwa_clid, source_id, source_url } }] } }
+  const b = body as Record<string, unknown>;
+  const message = b.message as Record<string, unknown> | undefined;
+  if (message) {
+    const addArr = message.add as unknown[] | undefined;
+    const firstMsg = Array.isArray(addArr) && addArr.length > 0
+      ? (addArr[0] as Record<string, unknown>)
+      : null;
+    if (firstMsg) {
+      const origin = firstMsg.origin as Record<string, unknown> | undefined;
+      if (origin && (origin.ctwa_clid || origin.ctwaClid)) {
+        // Normaliza para o mesmo formato de externalAdReply
+        return {
+          ctwaClid: origin.ctwa_clid ?? origin.ctwaClid,
+          ctwa_clid: origin.ctwa_clid ?? origin.ctwaClid,
+          sourceId: origin.source_id ?? origin.sourceId,
+          source_id: origin.source_id ?? origin.sourceId,
+          sourceUrl: origin.source_url ?? origin.sourceUrl ?? '',
+          source_url: origin.source_url ?? origin.sourceUrl ?? '',
+          sourceType: 'ad',
+          _phone: firstMsg.from ?? firstMsg.phone,
+        };
+      }
+    }
+  }
+
+  // Formato Evolution API / Z-API: externalAdReply em qualquer lugar do payload
   const adReply = deepFind<Record<string, unknown>>(body, 'externalAdReply');
   if (!adReply) return null;
 
@@ -116,7 +146,9 @@ export function extractCTW(body: unknown): CTWData | null {
   // sourceUrl pode aparecer como sourceUrl ou source_url
   const sourceUrl = ((adReply.sourceUrl ?? adReply.source_url) as string | undefined) ?? '';
 
-  const phone = extractPhone(body);
+  // _phone é injetado pelo formato Kommo nativo no extractAdReply
+  const phoneFromAdReply = adReply._phone as string | undefined;
+  const phone = (phoneFromAdReply ? normalizePhone(String(phoneFromAdReply)) : null) ?? extractPhone(body);
   if (!phone) return null;
 
   // Timestamp: tenta extrair do payload, senão usa now
