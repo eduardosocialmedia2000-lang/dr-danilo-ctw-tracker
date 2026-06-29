@@ -3,7 +3,7 @@ import { extractCTW } from '../src/extractCTW';
 import { getDatasetAndPage } from '../src/graphApi';
 import { sendLeadSubmitted, sendPurchase } from '../src/metaCapi';
 import { upsertCTWLead, getCTWLead, markPurchaseSent, updateKommoLeadValor, updateKommoLeadUtm } from '../src/supabase';
-import { applyMetaAdsTag } from '../src/kommo';
+import { applyMetaAdsTag, applyUtmFields, parseMessageUtm } from '../src/kommo';
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN ?? '';
 const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
@@ -102,7 +102,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     }
   }
 
-  // ── FLUXO 2: nova mensagem ou novo lead com ctwaClid ───────────────────────
+  // ── FLUXO 2: nova mensagem de site (botão WhatsApp com mensagem pré-preenchida) ──
+  // Mesmo sem ctwaClid, a mensagem pode conter [src:X/Y] que identifica a origem
+  const messageAdd2 = (body?.message as Record<string, unknown>)?.add as unknown[];
+  const firstMsgText = Array.isArray(messageAdd2) && messageAdd2.length > 0
+    ? String((messageAdd2[0] as Record<string, unknown>).text ?? '')
+    : '';
+  const siteLeadId = Array.isArray(messageAdd2) && messageAdd2.length > 0
+    ? Number((messageAdd2[0] as Record<string, unknown>).entity_id ?? 0)
+    : 0;
+
+  const siteUtms = firstMsgText ? parseMessageUtm(firstMsgText) : null;
+  if (siteUtms && siteLeadId) {
+    try {
+      await applyUtmFields(siteLeadId, siteUtms);
+      await updateKommoLeadUtm(siteLeadId, siteUtms.utm_content ?? siteUtms.utm_source ?? '');
+      console.log('[ctw-tracker] UTMs de site gravados, lead_id:', siteLeadId, siteUtms);
+    } catch (err) {
+      console.warn('[ctw-tracker] Erro ao gravar UTMs de site:', err);
+    }
+  }
+
+  // ── FLUXO 3: nova mensagem ou novo lead com ctwaClid ───────────────────────
   const ctw = extractCTW(body);
   if (!ctw) {
     res.status(200).json({ ok: true, skipped: true, reason: 'not_ctw' });
@@ -156,6 +177,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         } catch (err) {
           console.warn('[ctw-tracker] Erro ao atualizar utm_content:', err);
         }
+      }
+      // Grava utm_source=meta_ads + utm_medium=cpc nos campos nativos do Kommo
+      try {
+        await applyUtmFields(leadId, { utm_source: 'meta_ads', utm_medium: 'cpc' });
+      } catch (err) {
+        console.warn('[ctw-tracker] Erro ao gravar UTMs Meta Ads:', err);
       }
       // Aplica tag "meta-ads-ctwa" no lead para que o n8n filtre o Purchase
       try {
