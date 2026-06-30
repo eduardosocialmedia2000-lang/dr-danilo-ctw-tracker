@@ -10,6 +10,9 @@ const META_API_VERSION = process.env.META_API_VERSION ?? 'v24.0';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
 const META_TEST_EVENT_CODE = process.env.META_TEST_EVENT_CODE ?? '';
 
+// Pixel dedicado ao funil de consultas (separado do pixel de infoproduto)
+const CONSULTA_PIXEL_ID = process.env.CONSULTA_PIXEL_ID ?? '3355174741321243';
+
 // CM2 — Consulta Agendada: pipeline 13597443, stage 104924215
 const CM2_PIPELINE_ID = 13597443;
 const CM2_CONSULTA_AGENDADA_STAGE_ID = 104924215;
@@ -72,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
             {
               ctwaClid: stored.ctwa_clid,
               phone: stored.phone ?? '',
-              dataset: stored.dataset_id ?? '',
+              dataset: CONSULTA_PIXEL_ID,
               pageId: stored.page_id ?? '',
               value: purchaseValue,
               currency: CONSULTA_CURRENCY,
@@ -197,14 +200,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     }
   }
 
-  // Envia LeadSubmitted para Meta CAPI
+  // Envia LeadSubmitted para Meta CAPI — usa pixel dedicado de consultas
   let capiResponse: unknown;
   try {
     capiResponse = await sendLeadSubmitted(
       {
         ctwaClid: ctw.ctwaClid,
         phone: ctw.phone,
-        dataset,
+        dataset: CONSULTA_PIXEL_ID,
         pageId,
         timestamp: ctw.timestamp,
         testEventCode: META_TEST_EVENT_CODE || undefined,
@@ -218,7 +221,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
 
-  console.log('[ctw-tracker] LeadSubmitted enviado', { dataset, pageId });
+  console.log('[ctw-tracker] LeadSubmitted enviado', { dataset: CONSULTA_PIXEL_ID, pageId });
 
   res.status(200).json({ ok: true, event: 'LeadSubmitted', leadId, dataset, pageId, capi: capiResponse });
 }
