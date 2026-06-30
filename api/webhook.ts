@@ -20,6 +20,14 @@ const CM2_CONSULTA_AGENDADA_STAGE_ID = 104924215;
 const CONSULTA_VALUE = Number(process.env.CONSULTA_VALUE ?? '0');
 const CONSULTA_CURRENCY = 'BRL';
 
+// Funil Info Produto — IDs configuráveis via env vars
+const INFOPRODUTO_PIXEL_ID    = process.env.INFOPRODUTO_PIXEL_ID ?? '';
+const INFOPRODUTO_PIPELINE_ID = Number(process.env.INFOPRODUTO_PIPELINE_ID ?? '0');
+const INFOPRODUTO_STAGE_ID    = Number(process.env.INFOPRODUTO_STAGE_ID ?? '0');
+const INFOPRODUTO_VALUE       = Number(process.env.INFOPRODUTO_VALUE ?? '0');
+const INFOPRODUTO_CURRENCY    = 'BRL';
+const INFOPRODUTO_CONTENT_NAME = process.env.INFOPRODUTO_CONTENT_NAME ?? 'Info Produto Dr. Danilo';
+
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method === 'GET') {
     res.status(200).json({ ok: true, service: 'ctw-tracker' });
@@ -50,6 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       const pipelineId = Number(l.pipeline_id);
       const stageId = Number(l.status_id);
 
+      // ── Funil Consulta Agendada (CM2) ─────────────────────────────────────
       if (pipelineId === CM2_PIPELINE_ID && stageId === CM2_CONSULTA_AGENDADA_STAGE_ID) {
         console.log('[ctw-tracker] Consulta Agendada detectada, lead_id:', leadId);
 
@@ -81,6 +90,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
               currency: CONSULTA_CURRENCY,
               timestamp: Math.floor(Date.now() / 1000),
               testEventCode: META_TEST_EVENT_CODE || undefined,
+              contentCategory: 'consulta_medica',
+              contentName: 'Consulta Dr. Danilo',
             },
             META_ACCESS_TOKEN,
             META_API_VERSION
@@ -94,10 +105,79 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
               console.warn('[ctw-tracker] Erro ao atualizar valor_fechado:', err);
             }
           }
-          console.log('[ctw-tracker] Purchase enviado para lead_id:', leadId, 'value:', purchaseValue);
-          res.status(200).json({ ok: true, event: 'Purchase', leadId, value: purchaseValue, capi: capiResp });
+          console.log('[ctw-tracker] Purchase (consulta) enviado, lead_id:', leadId, 'value:', purchaseValue);
+          res.status(200).json({ ok: true, event: 'Purchase', funnel: 'consulta', leadId, value: purchaseValue, capi: capiResp });
         } catch (err) {
-          console.error('[ctw-tracker] Erro ao enviar Purchase:', err);
+          console.error('[ctw-tracker] Erro ao enviar Purchase (consulta):', err);
+          res.status(502).json({ error: 'purchase_capi_error', detail: String(err) });
+        }
+        return;
+      }
+
+      // ── Funil Info Produto ────────────────────────────────────────────────
+      if (
+        INFOPRODUTO_PIPELINE_ID > 0 &&
+        pipelineId === INFOPRODUTO_PIPELINE_ID &&
+        stageId === INFOPRODUTO_STAGE_ID
+      ) {
+        console.log('[ctw-tracker] Info Produto detectado, lead_id:', leadId);
+
+        const stored = await getCTWLead(leadId);
+        if (!stored) {
+          console.log('[ctw-tracker] Sem ctwaClid para lead_id:', leadId, '— skipping Purchase (infoproduto)');
+          res.status(200).json({ ok: true, skipped: true, reason: 'no_ctwa_clid_stored' });
+          return;
+        }
+
+        if (stored.purchase_event_sent_at) {
+          console.log('[ctw-tracker] Purchase já enviado para lead_id:', leadId, '(infoproduto)');
+          res.status(200).json({ ok: true, skipped: true, reason: 'purchase_already_sent' });
+          return;
+        }
+
+        const ipLeadPrice = Number(l.price ?? 0);
+        const ipPurchaseValue = ipLeadPrice > 0 ? ipLeadPrice : INFOPRODUTO_VALUE;
+        const ipDataset = INFOPRODUTO_PIXEL_ID || stored.dataset_id || CONSULTA_PIXEL_ID;
+
+        // Determina category/name — falha aqui não impede o Purchase
+        let contentCategory: string | undefined;
+        let contentName: string | undefined;
+        try {
+          contentCategory = 'infoproduto';
+          contentName = INFOPRODUTO_CONTENT_NAME;
+        } catch (err) {
+          console.warn('[ctw-tracker] Não foi possível determinar categoria do produto — Purchase segue sem content_category:', err);
+        }
+
+        try {
+          const capiResp = await sendPurchase(
+            {
+              ctwaClid: stored.ctwa_clid,
+              phone: stored.phone ?? '',
+              dataset: ipDataset,
+              pageId: stored.page_id ?? '',
+              value: ipPurchaseValue,
+              currency: INFOPRODUTO_CURRENCY,
+              timestamp: Math.floor(Date.now() / 1000),
+              testEventCode: META_TEST_EVENT_CODE || undefined,
+              contentCategory,
+              contentName,
+            },
+            META_ACCESS_TOKEN,
+            META_API_VERSION
+          );
+          await markPurchaseSent(leadId);
+          if (ipPurchaseValue > 0) {
+            try {
+              await updateKommoLeadValor(leadId, ipPurchaseValue);
+            } catch (err) {
+              console.warn('[ctw-tracker] Erro ao atualizar valor_fechado (infoproduto):', err);
+            }
+          }
+          console.log('[ctw-tracker] Purchase (infoproduto) enviado, lead_id:', leadId, 'value:', ipPurchaseValue);
+          res.status(200).json({ ok: true, event: 'Purchase', funnel: 'infoproduto', leadId, value: ipPurchaseValue, capi: capiResp });
+        } catch (err) {
+          console.error('[ctw-tracker] Erro ao enviar Purchase (infoproduto):', err);
           res.status(502).json({ error: 'purchase_capi_error', detail: String(err) });
         }
         return;

@@ -96,6 +96,8 @@ export interface PurchaseParams {
   currency: string;
   timestamp: number;
   testEventCode?: string;
+  contentCategory?: string;
+  contentName?: string;
 }
 
 export async function sendPurchase(
@@ -103,7 +105,7 @@ export async function sendPurchase(
   accessToken: string,
   apiVersion = 'v24.0'
 ): Promise<unknown> {
-  const event: CapiEvent & { value?: number; currency?: string } = {
+  const event: CapiEvent & { value?: number; currency?: string; content_category?: string; content_name?: string } = {
     action_source: 'business_messaging',
     event_name: 'Purchase',
     event_time: params.timestamp,
@@ -115,6 +117,8 @@ export async function sendPurchase(
     },
     value: params.value,
     currency: params.currency,
+    ...(params.contentCategory ? { content_category: params.contentCategory } : {}),
+    ...(params.contentName     ? { content_name: params.contentName }         : {}),
   };
 
   const payload: CapiPayload = { data: [event] };
